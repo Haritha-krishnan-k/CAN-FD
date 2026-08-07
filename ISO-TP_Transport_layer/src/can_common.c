@@ -59,9 +59,10 @@ int can_socket_init(void)
     return s;
 }
 
-int can_send_frame(int socket_fd, can_packet_t *packet)
+int can_send_frame(int socket_fd, const can_packet_t *packet)
 {
-    struct canfd_frame frame;
+    struct canfd_frame frame; 
+    int ret;
 
     frame.can_id = packet->id;
   //frame.can_dlc = packet->dlc;
@@ -69,7 +70,14 @@ int can_send_frame(int socket_fd, can_packet_t *packet)
 
     memcpy(frame.data, packet->data, packet->dlc);
 
-    return write(socket_fd, &frame, sizeof(frame));
+    ret =  write(socket_fd, &frame, sizeof(frame));
+    if(ret<0)
+    {
+        perror("CAN send");
+	return CAN_FAILURE;
+    }
+    
+     return CAN_SUCCESS;
 }
 
 int can_receive_frame(int socket_fd, can_packet_t *packet)
@@ -91,7 +99,68 @@ int can_receive_frame(int socket_fd, can_packet_t *packet)
     return CAN_SUCCESS;
 }
 
+int can_send_packet(int socket_fd,
+                    const packet_t *packet)
+{
+    can_packet_t frame;
+
+    packet_encode(packet, &frame);
+
+    return can_send_frame(socket_fd, &frame);
+}
+
+int can_receive_packet(int socket_fd,
+                       packet_t *packet)
+{
+    can_packet_t frame;
+
+    if(can_receive_frame(socket_fd, &frame)
+            != CAN_SUCCESS)
+    {
+        return CAN_FAILURE;
+    }
+
+    packet_decode(&frame, packet);
+
+    return CAN_SUCCESS;
+}
+
+
 void can_socket_close(int socket_fd)
 {
     close(socket_fd);
+}
+
+
+
+
+void packet_encode(const packet_t *packet,
+                   can_packet_t *frame)
+{
+    frame->id = TESTER_CAN_ID;
+
+    frame->dlc = packet->length + 2;
+
+    frame->data[0] = packet->sequence & 0xFF;
+    frame->data[1] = (packet->sequence >> 8) & 0xFF;
+
+    memcpy(&frame->data[2],
+           packet->data,
+           packet->length);
+}
+
+
+
+void packet_decode(const can_packet_t *frame,
+                   packet_t *packet)
+{
+    packet->sequence =
+        frame->data[0] |
+        (frame->data[1] << 8);
+
+    packet->length = frame->dlc - 2;
+
+    memcpy(packet->data,
+           &frame->data[2],
+           packet->length);
 }
