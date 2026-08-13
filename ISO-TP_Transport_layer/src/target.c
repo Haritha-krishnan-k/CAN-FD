@@ -1,27 +1,28 @@
-/******************************************************************************
- * File        : target.c
- * Description : Firmware Receiver (Target ECU)
- ******************************************************************************/
-
 #include <stdio.h>
+#include <stdint.h>
 
-#include "packet.h"
+#include "isotp.h"
 #include "firmware_receiver.h"
 #include "can_common.h"
 #include "crc.h"
 
-#define EXPECTED_FW_SIZE   (128 * 1024)   /* 131072 Bytes */
+#define EXPECTED_FW_SIZE   (128 * 1024)
 
 int main(void)
 {
-    packet_t packet;
-    int socket_fd ;
+    int socket_fd;
+
+    uint8_t *firmware_buffer;
+
+    size_t received_size = 0;
+
     /*-------------------------------------------------------
-     * Step 1 : Initialize CAN
+     * Step 1: Initialize CAN
      *------------------------------------------------------*/
+
     socket_fd = can_socket_init();
 
-    if (socket_fd < 0 )
+    if (socket_fd < 0)
     {
         printf("CAN initialization failed\n");
         return -1;
@@ -30,67 +31,80 @@ int main(void)
     printf("CAN Initialized\n");
 
     /*-------------------------------------------------------
-     * Step 2 : Initialize Firmware Receiver
+     * Step 2: Initialize firmware receiver
      *------------------------------------------------------*/
 
     if (firmware_receiver_init(EXPECTED_FW_SIZE)
             != FW_RECEIVER_SUCCESS)
     {
-        printf("Receiver initialization failed\n");
+        printf("Firmware receiver initialization failed\n");
+
+        can_socket_close(socket_fd);
+
         return -1;
     }
 
-    printf("Firmware Receiver Initialized\n");
-    printf("Waiting for firmware packets...\n\n");
+    printf("Waiting for ISO-TP firmware...\n");
 
     /*-------------------------------------------------------
-     * Step 3 : Receive Packets
+     * Step 3: Get receiver buffer
      *------------------------------------------------------*/
 
-    while (1)
+    firmware_buffer =
+        firmware_receiver_get_buffer();
+
+    if (firmware_buffer == NULL)
     {
-        /*
-         * Receive one packet from CAN.
-         * This function will be implemented in can_common.c
-         */
-        if (can_receive_packet(socket_fd,&packet) != CAN_SUCCESS)
-        {
-            continue;
-        }
+        printf("Failed to get firmware buffer\n");
 
-        printf("---------------------------------\n");
-        printf("Packet Number : %u\n", packet.sequence);
-        printf("Packet Length : %u Bytes\n", packet.length);
-        printf("First Byte    : %02X\n", packet.data[0]);
-        printf("Last Byte     : %02X\n",
-               packet.data[packet.length - 1]);
+        firmware_receiver_deinit();
+        can_socket_close(socket_fd);
 
-        /* Store packet */
-
-        if (firmware_receiver_store(&packet)
-                != FW_RECEIVER_SUCCESS)
-        {
-            printf("Failed to store packet %u\n",
-                   packet.sequence);
-            break;
-        }
-
-        /* Check whether firmware is complete */
-
-        if (firmware_receiver_complete())
-        {
-            break;
-        }
-
+        return -1;
     }
 
     /*-------------------------------------------------------
-     * Step 4 : Print Receiver Information
+     * Step 4: Receive complete ISO-TP firmware
+     *------------------------------------------------------*/
+
+    if (isotp_receive_firmware(socket_fd,
+                               firmware_buffer,
+                               EXPECTED_FW_SIZE,
+                               &received_size)
+            != ISOTP_SUCCESS)
+    {
+        printf("ISO-TP firmware reception failed\n");
+
+        firmware_receiver_deinit();
+        can_socket_close(socket_fd);
+
+        return -1;
+    }
+
+    /*-------------------------------------------------------
+     * Step 5: Tell firmware receiver how much was received
+     *------------------------------------------------------*/
+
+    if (firmware_receiver_store_data(
+            firmware_buffer,
+            received_size)
+            != FW_RECEIVER_SUCCESS)
+    {
+        printf("Failed to store received firmware\n");
+
+        firmware_receiver_deinit();
+        can_socket_close(socket_fd);
+
+        return -1;
+    }
+
+    /*-------------------------------------------------------
+     * Step 6: Check complete
      *------------------------------------------------------*/
 
     printf("\n");
     printf("=================================\n");
-    printf("Firmware Receiver Result\n");
+    printf("Firmware Reception Result\n");
     printf("=================================\n");
 
     printf("Expected Firmware Size : %zu Bytes\n",
@@ -109,19 +123,20 @@ int main(void)
     }
 
     /*-------------------------------------------------------
-     * Step 5 : CRC Verification (Next Step)
+     * Step 7: CRC
      *------------------------------------------------------*/
 
     /*
-     * uint32_t crc = crc_calculate(
-     *         firmware_receiver_get_buffer(),
-     *         firmware_receiver_get_size());
-     *
-     * printf("CRC : %08X\n", crc);
-     */
+    uint32_t crc =
+        crc_calculate(
+            firmware_receiver_get_buffer(),
+            firmware_receiver_get_received_bytes());
+
+    printf("CRC : %08X\n", crc);
+    */
 
     /*-------------------------------------------------------
-     * Step 6 : Cleanup
+     * Step 8: Cleanup
      *------------------------------------------------------*/
 
     firmware_receiver_deinit();

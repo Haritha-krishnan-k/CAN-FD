@@ -4,15 +4,13 @@ CFLAGS = -Wall -Iinclude
 TESTER_SRC = \
 src/tester.c \
 src/isotp.c \
-src/firmware_sender.c \
 src/can_common.c
 
 TARGET_SRC = \
 src/target.c \
 src/isotp.c \
-src/firmware_receiver.c \
-src/can_common.c \
-src/crc.c
+src/uds.c \
+src/can_common.c
 
 tester:
 	$(CC) $(TESTER_SRC) -o tester $(CFLAGS)

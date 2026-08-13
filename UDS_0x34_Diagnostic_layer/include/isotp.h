@@ -97,4 +97,16 @@ int isotp_receive_firmware(int socket_fd,
                            size_t buffer_size,
                            size_t *received_size);
 
+
+
+int isotp_send_message(int socket_fd,
+                       const uint8_t *data,
+                       size_t length);
+
+int isotp_receive_message(int socket_fd,
+                          uint8_t *buffer,
+                          size_t buffer_size,
+                          size_t *received_size);
+
+
 #endif
